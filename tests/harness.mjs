@@ -131,6 +131,10 @@ export async function serveFixture(name, { env = {}, assetPrefix, ...options } =
     dir: path.join(built.dist, ".test-sessions"),
     zone: "fixture-sessions",
   });
+  // A middleware build sits in front of a pull zone whose origin is the storage
+  // zone, so the files reach it through the pull zone, not the Storage API.
+  const middleware = built.manifest().script?.type === "middleware";
+  const origin = middleware ? await startLocalZone({ dir: clientDir, origin: true }) : undefined;
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -147,6 +151,7 @@ export async function serveFixture(name, { env = {}, assetPrefix, ...options } =
       BUNNY_SESSION_HOST: sessions.host,
       BUNNY_SESSION_KEY: "fixture",
       ...(assetPrefix ? { BUNNY_ASSET_PREFIX: assetPrefix } : {}),
+      ...(origin ? { BUNNY_ORIGIN_URL: origin.host } : {}),
       ...env,
     },
   });
@@ -159,7 +164,7 @@ export async function serveFixture(name, { env = {}, assetPrefix, ...options } =
 
   const close = async () => {
     server.kill();
-    await Promise.all([zone.close(), sessions.close()]);
+    await Promise.all([zone.close(), sessions.close(), origin?.close()]);
   };
 
   try {
@@ -182,7 +187,7 @@ export async function serveFixture(name, { env = {}, assetPrefix, ...options } =
     return { status: response.status, headers: response.headers, body, response };
   };
 
-  return { ...built, baseUrl, get, zone, stderr: () => stderr, close };
+  return { ...built, baseUrl, get, zone, origin, stderr: () => stderr, close };
 }
 
 /** The text inside the element with this id. Enough for a fixture page. */

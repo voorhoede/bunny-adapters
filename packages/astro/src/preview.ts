@@ -21,6 +21,8 @@ import { startLocalZone } from './build/local-zone.js';
 interface BuildInfo {
 	outfile: string;
 	client: string;
+	/** Absent in a build from before middleware scripts. */
+	script?: 'standalone' | 'middleware';
 }
 
 const INFO_FILE = '.bunny-adapter.json';
@@ -109,6 +111,13 @@ const createPreviewServer: CreatePreviewServer = async ({
 		zone: 'preview-sessions',
 	});
 
+	// A middleware script reads the files through the pull zone, whose origin is
+	// the storage zone, so it needs that origin next to the Storage API.
+	const origin =
+		info.script === 'middleware'
+			? await startLocalZone({ dir: fileURLToPath(client), origin: true })
+			: undefined;
+
 	// Astro passes a name or nothing. The runtime listens on an address.
 	const hostname = !host || host === 'localhost' ? '127.0.0.1' : host;
 
@@ -124,6 +133,7 @@ const createPreviewServer: CreatePreviewServer = async ({
 			BUNNY_SESSION_ZONE: sessions.zone,
 			BUNNY_SESSION_HOST: sessions.host,
 			BUNNY_SESSION_KEY: 'preview',
+			...(origin ? { BUNNY_ORIGIN_URL: origin.host } : {}),
 		},
 	});
 
@@ -136,7 +146,7 @@ const createPreviewServer: CreatePreviewServer = async ({
 	try {
 		await waitForServer(url, child);
 	} catch (error) {
-		await Promise.all([zone.close(), sessions.close()]);
+		await Promise.all([zone.close(), sessions.close(), origin?.close()]);
 		throw error;
 	}
 	logger.info(`Serving ${path.relative(rootDir, bundlePath)} on Deno, with a local storage zone.`);
@@ -147,7 +157,7 @@ const createPreviewServer: CreatePreviewServer = async ({
 		closed: () => closed,
 		async stop() {
 			child.kill();
-			await Promise.all([zone.close(), sessions.close()]);
+			await Promise.all([zone.close(), sessions.close(), origin?.close()]);
 			await closed.catch(() => {});
 		},
 	};
