@@ -14,6 +14,8 @@ export default defineConfig({
   },
 
   adapter: bunny({
+    // `tests/e2e.mjs --middleware` builds the same site as a middleware script.
+    script: process.env.SHOWCASE_SCRIPT === "middleware" ? "middleware" : "standalone",
     // Bunny Optimizer resizes images at the edge. Turn Optimizer on for the
     // pull zone, or the original image is served unchanged.
     imageService: "bunny",

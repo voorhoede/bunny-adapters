@@ -7,7 +7,10 @@
  *   4. Run the deployed bundle on Deno, which is the Edge Scripting runtime.
  *   5. Run every check from the showcase against it.
  *
- * Usage: node tests/e2e.mjs [--skip-build]
+ * With `--middleware`, the showcase is built as a middleware script, and it
+ * reads its files through a local pull zone origin instead of the Storage API.
+ *
+ * Usage: node tests/e2e.mjs [--skip-build] [--middleware]
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -22,6 +25,7 @@ const showcase = path.join(repo, "examples/astro-showcase");
 const dist = path.join(showcase, "dist");
 const bundle = path.join(dist, "index.js");
 const SIZE_LIMIT = 10 * 1024 * 1024;
+const script = process.argv.includes("--middleware") ? "middleware" : "standalone";
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -42,9 +46,13 @@ if (!haveDeno()) {
 
 // 1. Build.
 if (!process.argv.includes("--skip-build")) {
-  console.log("building the showcase\n");
+  console.log(`building the showcase as a ${script} script\n`);
   rmSync(dist, { recursive: true, force: true });
-  const build = spawnSync("npm", ["run", "build"], { cwd: showcase, stdio: "inherit" });
+  const build = spawnSync("npm", ["run", "build"], {
+    cwd: showcase,
+    stdio: "inherit",
+    env: { ...process.env, SHOWCASE_SCRIPT: script },
+  });
   if (build.status !== 0) process.exit(build.status ?? 1);
 }
 
@@ -67,6 +75,9 @@ check(
   code.includes('"404.html"') && code.includes('"about/index.html"'),
 );
 
+const manifest = JSON.parse(readFileSync(path.join(showcase, ".bunny/build.json"), "utf8"));
+check(`the manifest names a ${script} script`, manifest.script?.type === script);
+
 const size = statSync(bundle).size;
 check("one file, under the 10 MB limit", size < SIZE_LIMIT, `${(size / 1024).toFixed(0)} kB`);
 
@@ -77,6 +88,11 @@ const sessions = await startLocalZone({
   dir: path.join(dist, ".test-sessions"),
   zone: "e2e-sessions",
 });
+// A middleware script reads its files through the pull zone's origin.
+const origin =
+  script === "middleware"
+    ? await startLocalZone({ dir: path.join(dist, "client"), origin: true })
+    : undefined;
 const port = await freePort();
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -93,6 +109,7 @@ const server = spawn("deno", ["run", "-A", bundle], {
     BUNNY_SESSION_ZONE: sessions.zone,
     BUNNY_SESSION_HOST: sessions.host,
     BUNNY_SESSION_KEY: "e2e",
+    ...(origin ? { BUNNY_ORIGIN_URL: origin.host } : {}),
   },
 });
 
@@ -105,7 +122,7 @@ try {
   failures++;
 } finally {
   server.kill();
-  await Promise.all([zone.close(), sessions.close()]);
+  await Promise.all([zone.close(), sessions.close(), origin?.close()]);
 }
 
 // The session check above has run by now. dist/client is what a deploy
