@@ -272,7 +272,17 @@ names the section here that states the rule.
 
 ## The runtime contract
 
-- Serve with `BunnySDK.net.http.serve(handler)`.
+- Serve with `BunnySDK.net.http.serve(handler)`. For a middleware script,
+  register `servePullZone().onOriginRequest().onOriginResponse()` instead, and
+  write `"middleware"` as the script's type in the build manifest.
+- A middleware script renders the framework's routes in `onOriginRequest`, and
+  sends every other request on to the origin at `<assetPrefix>/<object>`, so
+  the pull zone reads it from the nearest replica. It never sends one outside
+  that folder. `onOriginResponse` gives the stored object the same headers a
+  standalone script would.
+- Away from bunny.net, run the two hooks yourself against a local origin.
+  `servePullZone` has a local proxy, and in SDK 0.12.1 it answers every origin
+  response with 200.
 - Read the client IP from `x-forwarded-for`.
 - Read the country from `cdn-requestcountrycode`, and the request id from
   `cdn-requestid`.
@@ -329,7 +339,7 @@ result. A new adapter needs no new CLI release.
 
   "script": {
     "entry": "dist/index.js", // one file, 10 MB at most
-    "type": "standalone",
+    "type": "standalone", // or "middleware", for a pull zone whose origin is the storage zone
     "bytes": 668140,
   },
 

@@ -164,6 +164,7 @@ no Deno.
 | Static page headers, such as a CSP                           | Yes, [see below](#a-site-with-no-server)                 |
 | `sharp` image service                                        | No. Native binaries cannot run on the edge               |
 | Edge middleware as a separate function                       | No. Middleware runs inside the script                    |
+| The script as a Bunny middleware script                      | Yes, [see below](#middleware-mode)                       |
 | i18n domains                                                 | Untested. Tell us if you need it                         |
 
 ## A site with no server
@@ -211,6 +212,58 @@ build. Say so:
 ```js
 adapter: bunny({ deploy: "server" }),
 ```
+
+## Middleware mode
+
+By default the script is a standalone script, the pull zone's origin. A file
+that misses the cache is read by the script from the storage zone's main
+region, wherever the visitor is, so storage replicas never help.
+
+`script: "middleware"` builds a Bunny middleware script instead, for a pull zone
+whose origin is the storage zone. Astro's routes still render in the script.
+Every other request goes on to the origin, inside the deploy's folder, and the
+pull zone reads the file from the nearest storage replica.
+
+```js
+adapter: bunny({ script: "middleware" }),
+```
+
+Measured on 2026-09-30, with a main region in Frankfurt and a replica in New
+York:
+
+| A file missing the cache, median | Standalone | Middleware |
+| -------------------------------- | ---------- | ---------- |
+| From New York                    | 420 ms     | 90 ms      |
+| From Europe                      | 105 ms     | 110 ms     |
+
+So it pays off for visitors far from the main region, with a replica near them.
+Near the main region it gains nothing: the script still runs on every cache
+miss, files included.
+
+What it asks of the deploy. `bunny lab deploy astro` does not set this up yet,
+so for now it is a deploy you run yourself:
+
+- A storage zone with the replication regions your visitors are near.
+- An Edge Script of type **Middleware**, with the variables in
+  [Configure the script](#configure-the-script). It still reads the prerendered
+  404 and 500 pages through the Storage API.
+- A pull zone whose origin is the storage zone, with that script attached, the
+  script running after the cache, and the cache expiration set to respect the
+  origin's `Cache-Control`. Cookies and Smart Cache as in
+  [the build manifest](#the-build-manifest).
+
+The pull zone's origin is the whole storage zone, and the script is what keeps
+it private: it only sends a request on inside this deploy's folder, and never
+to `_sessions/`. A script that throws answers 500; the request does not fall
+through to storage.
+
+Two differences from a standalone script:
+
+- A `Range` request that misses the cache was answered with the whole file by
+  the pull zone, measured on 2026-09-30, where a standalone script answers 206.
+- With `assetManifest: false`, a page path is always read as
+  `<route>/index.html`, so a site built with `build.format: "file"` gets 404s.
+  Keep the file list on.
 
 ## Images
 
@@ -435,6 +488,7 @@ bunny({
 
   // Build
   deploy: "auto", // "server" to deploy the script even with every route prerendered
+  script: "standalone", // "middleware" to read files from the nearest storage replica
   outfile: "dist/index.js",
   bundle: true, // false to run your own bundler
   assetManifest: true, // or a file count, above which the script probes instead
