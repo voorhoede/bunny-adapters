@@ -23,6 +23,9 @@ export type { BuildManifest, BunnyRuntime, RuntimeOptions } from './runtime/type
  */
 export type ImageServiceMode = 'noop' | 'bunny' | false;
 
+/** The type of Edge Script, `ScriptType` in the bunny.net API. */
+export type ScriptType = 'standalone' | 'middleware';
+
 export interface BunnyImageServiceConfig {
 	/** Widths used to build a `srcset`. */
 	widths?: number[];
@@ -86,6 +89,24 @@ export interface BunnyAdapterOptions {
 	 * @default "auto"
 	 */
 	deploy?: 'auto' | 'server';
+
+	/**
+	 * The type of Edge Script to build, as bunny.net calls it.
+	 *
+	 * - `"standalone"` is the pull zone's origin. It renders Astro's routes and
+	 *   reads every other file from the storage zone's main region.
+	 * - `"middleware"` is attached to a pull zone whose origin is the storage
+	 *   zone. It renders Astro's routes, and sends every other request on to the
+	 *   origin, so the pull zone reads the file from the nearest storage
+	 *   replica. It runs on every cache miss, files included. Measured from
+	 *   New York on 2026-09-30, a file missing the cache took about 90 ms this
+	 *   way and about 420 ms from a standalone script reading Frankfurt; from
+	 *   Europe the two were the same. The deploy has to set the pull zone up
+	 *   this way, which `bunny lab deploy astro` does not do yet.
+	 *
+	 * @default "standalone"
+	 */
+	script?: ScriptType;
 
 	/** Settings for the Bunny Optimizer image service. Ignored otherwise. */
 	image?: BunnyImageServiceConfig;

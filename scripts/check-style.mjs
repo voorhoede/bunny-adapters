@@ -39,7 +39,13 @@ const PACKAGES = [
     dir: "packages/astro",
     framework: "Astro",
     /** Where the script starts. Everything these reach is bundled and shipped. */
-    runtimeEntries: ["src/server.ts", "src/session.ts", "src/cache.ts", "src/image-service.ts"],
+    runtimeEntries: [
+      "src/server.ts",
+      "src/middleware.ts",
+      "src/session.ts",
+      "src/cache.ts",
+      "src/image-service.ts",
+    ],
     /** Astro's build-time entries. A failure here is one the user has to fix. */
     buildEntries: ["src/index.ts", "src/preview.ts"],
     /** Every official Astro adapter writes the extension. A Nitro preset writes `.ts`. */

@@ -29,6 +29,7 @@ export type {
 	BunnyImageServiceConfig,
 	BunnyRuntime,
 	ImageServiceMode,
+	ScriptType,
 } from './types.js';
 export type { BunnyCacheConfig } from './cache.js';
 export type { BunnySessionConfig } from './session.js';
@@ -74,7 +75,15 @@ export default function bunny(options: BunnyAdapterOptions = {}): AstroIntegrati
 		cache = true,
 		assetManifest = true,
 		deploy = 'auto',
+		script = 'standalone',
 	} = options;
+
+	if (script !== 'standalone' && script !== 'middleware') {
+		throw new AstroError(
+			`The adapter option \`script\` is "${String(script)}", but it takes "standalone" or "middleware".`,
+			'Leave it out for a standalone script, the pull zone origin.',
+		);
+	}
 
 	const runtime: RuntimeOptions = {
 		storageZone,
@@ -182,7 +191,7 @@ export default function bunny(options: BunnyAdapterOptions = {}): AstroIntegrati
 				setAdapter({
 					name: PACKAGE,
 					entrypointResolution: 'auto',
-					serverEntrypoint: `${PACKAGE}/server`,
+					serverEntrypoint: `${PACKAGE}/${script === 'middleware' ? 'middleware' : 'server'}`,
 					// A static build deploys no script, so there is nothing of ours to
 					// preview. Leaving this out hands `astro preview` to Astro's own
 					// static server, which serves the files the deploy will serve.
@@ -335,6 +344,7 @@ export default function bunny(options: BunnyAdapterOptions = {}): AstroIntegrati
 						{
 							outfile: relativeTo(rootDir, outPath),
 							client: relativeTo(rootDir, fileURLToPath(clientDir)),
+							script,
 						},
 						null,
 						2,
@@ -388,7 +398,7 @@ export default function bunny(options: BunnyAdapterOptions = {}): AstroIntegrati
 					adapter: { package: PACKAGE, version: versionOf('../package.json') },
 					framework: { name: 'astro', version: astroVersion },
 					kind: 'ssr',
-					script: { entry: relative, type: 'standalone', bytes },
+					script: { entry: relative, type: script, bytes },
 					assets: { dir: clientPath },
 					requires: {
 						// No `cliVersion` floor yet. `manifestVersion` already stops a CLI
@@ -404,6 +414,9 @@ export default function bunny(options: BunnyAdapterOptions = {}): AstroIntegrati
 							// on. The adapter protects a private page another way: a server
 							// response that sets no Cache-Control gets `private, no-store`.
 							enableSmartCache: false,
+							// With cache slicing on, the pull zone drops storage's ETag, so a
+							// stored file is downloaded again instead of revalidated.
+							...(script === 'middleware' ? { enableCacheSlice: false } : {}),
 						},
 						...(sessions ? { storage: { write: true, reason: 'Astro.session' } } : {}),
 						env: [

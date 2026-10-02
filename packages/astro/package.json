@@ -33,6 +33,10 @@
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
     },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "default": "./dist/middleware.js"
+    },
     "./image-service": {
       "types": "./dist/image-service.d.ts",
       "default": "./dist/image-service.js"

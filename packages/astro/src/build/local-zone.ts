@@ -50,6 +50,14 @@ export interface LocalZoneOptions {
 	port?: number;
 	/** Allow writes, which sessions need. @default true */
 	writable?: boolean;
+	/**
+	 * Answer as a pull zone whose origin is this zone, instead of as the Storage
+	 * API: `/{object}` with no zone segment and no access key, reads only, and a
+	 * folder answered with its `index.html`, as a storage-origin pull zone does.
+	 * A middleware build reads its files this way.
+	 * @default false
+	 */
+	origin?: boolean;
 }
 
 /**
@@ -124,7 +132,8 @@ function resolveSafely(dir: string, object: string): string | null {
 export async function startLocalZone(options: LocalZoneOptions): Promise<LocalZone> {
 	const zone = options.zone ?? 'preview';
 	const dir = path.resolve(options.dir);
-	const writable = options.writable ?? true;
+	const origin = options.origin ?? false;
+	const writable = !origin && (options.writable ?? true);
 
 	const requests: string[] = [];
 
@@ -134,13 +143,22 @@ export async function startLocalZone(options: LocalZoneOptions): Promise<LocalZo
 			requests.push(url.pathname);
 			const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
-			if (segments.shift() !== zone) {
+			if (origin && request.method !== 'GET' && request.method !== 'HEAD') {
+				response.writeHead(405, { allow: 'GET, HEAD' }).end();
+				return;
+			}
+			if (!origin && segments.shift() !== zone) {
 				response.writeHead(404).end('{"HttpCode":404,"Message":"Zone not found"}');
 				return;
 			}
 
-			const object = segments.join('/');
-			const target = object ? resolveSafely(dir, object) : null;
+			let object = segments.join('/');
+			// Measured on a storage-origin pull zone on 2026-09-30: `/x/` and `/x`
+			// both answer with `x/index.html`.
+			if (origin && (object === '' || url.pathname.endsWith('/'))) {
+				object = object ? `${object}/index.html` : 'index.html';
+			}
+			let target = object ? resolveSafely(dir, object) : null;
 			if (!target) {
 				response.writeHead(400).end('{"HttpCode":400,"Message":"Invalid path"}');
 				return;
@@ -172,7 +190,11 @@ export async function startLocalZone(options: LocalZoneOptions): Promise<LocalZo
 			let size: number;
 			let modified: Date;
 			try {
-				const info = await stat(target);
+				let info = await stat(target);
+				if (origin && info.isDirectory()) {
+					target = path.join(target, 'index.html');
+					info = await stat(target);
+				}
 				// An internal invariant, caught two lines below and answered with a
 				// 404. No user can act on it, so it is not an `AstroError`.
 				if (!info.isFile()) throw new Error('not a file');
